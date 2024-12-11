@@ -1,0 +1,6 @@
+<predicate> ::= [A-z]+
+<binop>     ::= "&" | "|" | "->" | "<->"
+<binstmt>   ::= <stmt> <binop> <stmt>
+<substmt>   ::= "("  ")" | <predicate>
+<stmt>      ::= <substmt> | "!" <substmt>
+<toplevel>  ::= <stmt> | <binstmt>
