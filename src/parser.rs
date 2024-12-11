@@ -112,10 +112,9 @@ impl<'a> Parser<'a> {
     pub fn parse(&mut self) -> anyhow::Result<Expression> {
         let stmt1 = self.statement()?;
         if let Ok(next) = self.next() {
-            if let Ok(op) = BinaryOperator::try_from(next) {
-                let stmt2 = self.statement()?;
-                return Ok(Expression::Binary(op, Box::new(stmt1), Box::new(stmt2)));
-            }
+            let op = BinaryOperator::try_from(next)?;
+            let stmt2 = self.statement()?;
+            return Ok(Expression::Binary(op, Box::new(stmt1), Box::new(stmt2)));
         }
         Ok(stmt1)
     }
