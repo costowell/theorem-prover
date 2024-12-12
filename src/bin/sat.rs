@@ -1,16 +1,21 @@
-mod lexer;
-mod parser;
-
-use std::collections::HashMap;
+use std::{collections::HashMap, fs};
 
 use itertools::Itertools;
-use lexer::{tokenize, Token};
-use parser::Parser;
-
-const EXPR: &'static str = "(!A & B) -> !(A | !B)";
+use theorem_prover::{
+    lexer::{tokenize, Token},
+    parser::Parser,
+};
 
 fn main() {
-    let tokens = tokenize(EXPR.to_string()).unwrap();
+    let s = fs::read_to_string(
+        std::env::args()
+            .nth(1)
+            .expect("First argument must be a path to a file"),
+    )
+    .expect("Failed to read from file")
+    .trim()
+    .to_string();
+    let tokens = tokenize(s).unwrap();
     let mut iter = tokens.iter().peekable();
     let mut parser = Parser::new(&mut iter);
     let expr = parser.parse().unwrap();
@@ -29,7 +34,7 @@ fn main() {
         print!("{predicate} ")
     }
     println!();
-    let mut prooved = true;
+    let mut satisfiable = false;
     for n in 0..(2_usize.pow(predicates.len() as u32)) {
         let values_iter = predicates
             .iter()
@@ -41,18 +46,18 @@ fn main() {
 
         let map: HashMap<&str, bool> = HashMap::from_iter(values_iter);
         let result = expr.eval(&map);
-        if !result {
-            prooved = false;
+        if result {
+            satisfiable = true;
         }
         println!("{}", result);
     }
     println!();
     println!(
         "{expr} is {}",
-        if prooved {
-            "true"
+        if satisfiable {
+            "satisfiable"
         } else {
-            "not true for all cases"
+            "unsatisfiable"
         }
     );
 }

@@ -2,7 +2,7 @@ use std::{collections::HashMap, fmt::Display, iter::Peekable, slice::Iter};
 
 use anyhow::{anyhow, bail};
 
-use crate::Token;
+use crate::lexer::Token;
 
 pub struct Parser<'a> {
     pub iter: &'a mut Peekable<Iter<'a, Token>>,
