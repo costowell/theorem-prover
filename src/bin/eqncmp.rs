@@ -36,9 +36,9 @@ use nalgebra::DMatrix;
 /// For now, this preface will serve as a way to organize my thoughts and demonstrate my thought process.
 
 /// Represents some variable and a coefficient
-#[derive(Debug)]
+#[derive(Debug, Clone, Default)]
 pub struct Term<'a> {
-    pub coeff: i64,
+    pub coeff: f64,
     pub var: &'a str,
 }
 
@@ -47,10 +47,16 @@ pub type LinearExpression<'a> = Vec<Term<'a>>;
 
 /// An equation is something of the form "x = as + bt + ... + cu"
 /// where a, b, c are constants and s, t, u are variables
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Equation<'a> {
     pub lhs: LinearExpression<'a>,
     pub rhs: LinearExpression<'a>,
+}
+
+impl<'a> Term<'a> {
+    pub fn new(var: &'a str, coeff: f64) -> Self {
+        Self { var, coeff }
+    }
 }
 
 impl<'a> Neg for Term<'a> {
@@ -116,32 +122,42 @@ fn rref(mut matrix: DMatrix<f64>) -> DMatrix<f64> {
 }
 
 fn main() {
+    // a = 2b
     let eqn1 = Equation {
-        lhs: vec![Term { coeff: 1, var: "a" }],
-        rhs: vec![Term { coeff: 2, var: "b" }],
+        lhs: vec![Term::new("a", 1.0)],
+        rhs: vec![Term::new("b", 2.0)],
     };
+    // b = 2a
     let eqn2 = Equation {
-        lhs: vec![Term { coeff: 1, var: "b" }],
-        rhs: vec![Term { coeff: 2, var: "a" }],
+        lhs: vec![Term::new("b", 1.0)],
+        rhs: vec![Term::new("a", 2.0)],
     };
+    // a = 2 (an empty var name means constant)
     let eqn3 = Equation {
-        lhs: vec![Term { coeff: 1, var: "a" }],
-        rhs: vec![Term { coeff: 2, var: "" }],
+        lhs: vec![Term::new("a", 1.0)],
+        rhs: vec![Term::new("", 2.0)],
+    };
+    // a = 3
+    let eqn4 = Equation {
+        lhs: vec![Term::new("a", 1.0)],
+        rhs: vec![Term::new("", 3.0)],
     };
 
-    let mut vars: HashMap<&str, usize> = HashMap::new();
+    let mut vars_to_index: HashMap<&str, usize> = HashMap::new();
+    let mut vars: Vec<&str> = Vec::new();
     let mut rows: Vec<Vec<f64>> = Vec::new();
     let mut i: usize = 0;
 
-    for eqn in [eqn1, eqn2, eqn3] {
+    // Turn equations into matrix
+    for eqn in [eqn1, eqn2] {
         let eqn = eqn.equals_zero();
-        println!("Eqn: {eqn:?}");
         let mut row: Vec<f64> = Vec::new();
         for term in eqn {
-            let pos = if let Some(pos) = vars.get(term.var) {
+            let pos = if let Some(pos) = vars_to_index.get(term.var) {
                 *pos
             } else {
-                vars.insert(term.var, i);
+                vars_to_index.insert(term.var, i);
+                vars.push(term.var);
                 i += 1;
                 i - 1
             };
@@ -150,9 +166,9 @@ fn main() {
             }
             row[pos] = term.coeff as f64;
         }
-        println!("Row: {row:?}");
         rows.push(row);
     }
+
     let matrix = DMatrix::from_row_iterator(
         rows.len(),
         i,
@@ -163,14 +179,47 @@ fn main() {
             })
             .flatten(),
     );
+
     println!(
         "{:?}",
-        vars.iter()
+        vars_to_index
+            .iter()
             .sorted_by_key(|x| x.1)
             .map(|x| x.0)
             .collect::<Vec<_>>()
     );
     print!("{}", matrix);
+
+    // Get RREF
     let matrix = rref(matrix);
     print!("{}", matrix);
+
+    // Extract equivalences from matrix
+    let equivalences: Vec<Equation> = matrix
+        .row_iter()
+        .map(|x| {
+            let mut constant = Term::default();
+            let mut terms = Vec::new();
+            for (i, v) in x.into_iter().enumerate() {
+                if *v == 0.0 {
+                    continue;
+                }
+                let var = vars[i];
+                let term = Term::new(var, *v);
+                if var == "" {
+                    constant = term;
+                } else {
+                    terms.push(term);
+                }
+            }
+            if terms.len() == 0 && constant.coeff != 0.0 {
+                panic!("Something equals nothing! Contradiction found!");
+            }
+            Equation {
+                lhs: terms,
+                rhs: vec![constant],
+            }
+        })
+        .collect();
+    println!("{equivalences:?}");
 }
