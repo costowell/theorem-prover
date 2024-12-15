@@ -34,6 +34,50 @@ use nalgebra::DMatrix;
 ///
 /// At present, none of this is implemented, so I could very well be wrong.
 /// For now, this preface will serve as a way to organize my thoughts and demonstrate my thought process.
+///
+///
+/// Dec 14, 2024: Possible Break-through
+///
+/// After thinking about it for a bit, I think the matrix is enough and equivalence classes are redundant.
+/// Say we have a few equations like so:
+/// a + c = 0
+/// b + c = 0
+/// a != b
+///
+/// Using the method I had before, my equivalence classes would like
+/// C1 = { a + c, b + c, 0 }
+///
+/// And then when "generating possible negated equations", there is nothing said to be equivalent to a or b yet.
+/// This is a big hole in my process that I can only imagine gets wider the more cases you throw at it.
+///
+/// The solution? Just use a matrix. If we assert "a != b", then logically, "a == b" should not be consistent
+/// with the equations. However, if "a == b" *is* consistent, then "a != b" MUST be false.
+/// This is close, but not always the case.
+///
+/// Consider the equations "a = 1", "b != 1". Using the same method above, if we assert "b != 1", then logically "b == 1"
+/// should not be consistent. However, "b == 1" is still consistent, yet "b != 1" is not necessarily inconsistent.
+/// To illustrate this point further, here is another example that goes beyond simple disjoint equations.
+/// a = 1
+/// b = 2
+/// 17 - c != a + b
+///
+/// The initial system is
+/// [ 1 0 | 1 ]
+/// [ 0 1 | 2 ]
+/// Now, is "17 - c != a + b" inconsistent with this? Here is the simplified matrix
+/// [ 1 0 0 | 1  ]    [ 1 0 0 | 1  ]
+/// [ 0 1 0 | 2  ] -> [ 0 1 0 | 2  ]
+/// [ 1 1 1 | 17 ]    [ 0 0 1 | 14 ]
+/// It is clear that our negated equation is consistent! But that doesn't mean that "17 - c == a + b" is true.
+/// The variable `c` acts as a 'scapegoat' since we knew nothing about it until this point.
+///
+/// My revised solution is to discard any negated equations adding new variables to the system since their addition is trivially consistent,
+/// yet says nothing about their truth.
+///
+/// As a closing thought, I think this problem is related to implicit quantifiers.
+/// Equations imply the universal qualifier and negated equations imply the existential qualifier.
+/// This is probably due to how negating quantifiers works: ¬∀x:f(x) = ∃x:¬f(x)
+/// Hopefully, this lays the groundwork to attack that problem when I get to it.
 
 /// Represents some variable and a coefficient
 #[derive(Debug, Clone, Default)]
