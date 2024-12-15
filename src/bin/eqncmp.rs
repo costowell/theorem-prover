@@ -1,6 +1,8 @@
-use std::{collections::HashMap, ops::Neg};
+use std::{
+    collections::{HashMap, HashSet},
+    ops::Neg,
+};
 
-use itertools::Itertools;
 use nalgebra::DMatrix;
 
 /// Once we understand which boolean values satisfy an expression (i.e. "p & q" has p = true, q = true satisfy it)
@@ -116,16 +118,41 @@ impl<'a> Neg for Term<'a> {
 
 impl<'a> Equation<'a> {
     /// Consumes the expression and outputs an expression where the lhs has all terms
-    pub fn equals_zero(self) -> LinearExpression<'a> {
+    pub fn equals_zero(&self) -> LinearExpression<'a> {
+        let c = self.clone();
+
         // term_side is where the terms are going, zero_side is where no terms should be
         let (mut term_side, zero_side) = if self.lhs.len() > self.rhs.len() {
-            (self.lhs, self.rhs)
+            (c.lhs, c.rhs)
         } else {
-            (self.rhs, self.lhs)
+            (c.rhs, c.lhs)
         };
         let mut new_terms = zero_side.into_iter().map(|x| -x).collect();
         term_side.append(&mut new_terms);
         term_side
+    }
+
+    pub fn has_extra_vars(&self, eqns: &Vec<&Equation>) -> bool {
+        let mut set = HashSet::new();
+        for eqn in eqns {
+            for t in &eqn.lhs {
+                set.insert(t.var);
+            }
+            for t in &eqn.rhs {
+                set.insert(t.var);
+            }
+        }
+        for t in &self.lhs {
+            if !set.contains(t.var) {
+                return true;
+            }
+        }
+        for t in &self.rhs {
+            if !set.contains(t.var) {
+                return true;
+            }
+        }
+        false
     }
 }
 
@@ -165,35 +192,14 @@ fn rref(mut matrix: DMatrix<f64>) -> DMatrix<f64> {
     matrix
 }
 
-fn main() {
-    // a = 2b
-    let eqn1 = Equation {
-        lhs: vec![Term::new("a", 1.0)],
-        rhs: vec![Term::new("b", 2.0)],
-    };
-    // b = 2a
-    let eqn2 = Equation {
-        lhs: vec![Term::new("b", 1.0)],
-        rhs: vec![Term::new("a", 2.0)],
-    };
-    // a = 2 (an empty var name means constant)
-    let eqn3 = Equation {
-        lhs: vec![Term::new("a", 1.0)],
-        rhs: vec![Term::new("", 2.0)],
-    };
-    // a = 3
-    let eqn4 = Equation {
-        lhs: vec![Term::new("a", 1.0)],
-        rhs: vec![Term::new("", 3.0)],
-    };
-
+fn is_consistent(eqns: Vec<&Equation>) -> bool {
     let mut vars_to_index: HashMap<&str, usize> = HashMap::new();
     let mut vars: Vec<&str> = Vec::new();
     let mut rows: Vec<Vec<f64>> = Vec::new();
     let mut i: usize = 0;
 
     // Turn equations into matrix
-    for eqn in [eqn1, eqn2] {
+    for eqn in eqns {
         let eqn = eqn.equals_zero();
         let mut row: Vec<f64> = Vec::new();
         for term in eqn {
@@ -213,6 +219,11 @@ fn main() {
         rows.push(row);
     }
 
+    // If there are no constant terms, then all vars could be 0, which means its always consistent
+    if vars_to_index.get("").is_none() {
+        return true;
+    }
+
     let matrix = DMatrix::from_row_iterator(
         rows.len(),
         i,
@@ -224,46 +235,90 @@ fn main() {
             .flatten(),
     );
 
-    println!(
-        "{:?}",
-        vars_to_index
-            .iter()
-            .sorted_by_key(|x| x.1)
-            .map(|x| x.0)
-            .collect::<Vec<_>>()
-    );
-    print!("{}", matrix);
-
     // Get RREF
     let matrix = rref(matrix);
-    print!("{}", matrix);
 
-    // Extract equivalences from matrix
-    let equivalences: Vec<Equation> = matrix
+    let ci = vars_to_index[""];
+    matrix
         .row_iter()
-        .map(|x| {
-            let mut constant = Term::default();
-            let mut terms = Vec::new();
-            for (i, v) in x.into_iter().enumerate() {
-                if *v == 0.0 {
-                    continue;
-                }
-                let var = vars[i];
-                let term = Term::new(var, *v);
-                if var == "" {
-                    constant = term;
-                } else {
-                    terms.push(term);
-                }
-            }
-            if terms.len() == 0 && constant.coeff != 0.0 {
-                panic!("Something equals nothing! Contradiction found!");
-            }
-            Equation {
-                lhs: terms,
-                rhs: vec![constant],
-            }
+        .filter(|x| x[ci] != 0.0)
+        .find(|x| {
+            x.iter()
+                .enumerate()
+                .find(|(i, x)| *i != ci && **x != 0.0)
+                .is_none()
         })
-        .collect();
-    println!("{equivalences:?}");
+        .is_none()
+}
+
+/// a = b & b = c -> a = c
+/// [ 1 -1 0 ]    [  ]
+/// [ 0 1 -1 ] ->
+/// [ 1 0 -1 ]
+
+fn main() {
+    let eqn1 = Equation {
+        lhs: vec![Term::new("a", 1.0)],
+        rhs: vec![Term::new("b", 1.0)],
+    };
+    let eqn2 = Equation {
+        lhs: vec![Term::new("b", 1.0)],
+        rhs: vec![Term::new("c", 1.0)],
+    };
+    let eqn3 = Equation {
+        lhs: vec![Term::new("c", 1.0)],
+        rhs: vec![Term::new("a", 1.0)],
+    };
+    let eqn4 = Equation {
+        lhs: vec![Term::new("d", 1.0)],
+        rhs: vec![Term::new("", 1.0)],
+    };
+
+    // This is excessive, but I'm too far in to quit now
+    for a in 0..=1 {
+        for b in 0..=1 {
+            for c in 0..=1 {
+                // for d in 0..=1 {
+                let mut v = Vec::new();
+                let mut n = Vec::new();
+
+                if a == 1 {
+                    v.push(&eqn1);
+                } else {
+                    n.push(&eqn1);
+                }
+                if b == 1 {
+                    v.push(&eqn2);
+                } else {
+                    n.push(&eqn2);
+                }
+                if c == 1 {
+                    v.push(&eqn3);
+                } else {
+                    n.push(&eqn3);
+                }
+                // if d == 1 {
+                //     v.push(&eqn4);
+                // } else {
+                //     n.push(&eqn4);
+                // }
+
+                let mut n: Vec<&Equation> =
+                    n.into_iter().filter(|x| !x.has_extra_vars(&v)).collect();
+
+                let negated_are_inconsistent = if n.len() == 0 {
+                    false
+                } else {
+                    n.append(&mut v);
+                    is_consistent(n)
+                };
+
+                println!(
+                    "{a}{b}{c} = {}",
+                    is_consistent(v) && !negated_are_inconsistent
+                );
+                // }
+            }
+        }
+    }
 }
