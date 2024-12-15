@@ -76,10 +76,10 @@ use nalgebra::DMatrix;
 /// My revised solution is to discard any negated equations adding new variables to the system since their addition is trivially consistent,
 /// yet says nothing about their truth.
 ///
-/// As a closing thought, I think this problem is related to implicit quantifiers.
-/// Equations imply the universal qualifier and negated equations imply the existential qualifier.
+/// As a closing thought, I think this problem is related to implicit quantifiers on the variables of equations.
+/// Equations imply the universal quantifier and negated equations imply the existential quantifier.
 /// This is probably due to how negating quantifiers works: ¬∀x:f(x) = ∃x:¬f(x)
-/// Hopefully, this lays the groundwork to attack that problem when I get to it.
+/// Hopefully, this lays the groundwork to attack the problem of quantifiers when I get to it.
 
 /// Represents some variable and a coefficient
 #[derive(Debug, Clone, Default)]
