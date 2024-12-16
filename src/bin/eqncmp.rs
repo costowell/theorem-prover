@@ -80,6 +80,47 @@ use nalgebra::DMatrix;
 /// Equations imply the universal quantifier and negated equations imply the existential quantifier.
 /// This is probably due to how negating quantifiers works: ¬∀x:f(x) = ∃x:¬f(x)
 /// Hopefully, this lays the groundwork to attack the problem of quantifiers when I get to it.
+///
+/// Dec 15, 2024: Third time's the charm!
+///
+/// Wow! Didn't take long to find a counter example for this one. Consider the following equations.
+/// a = b
+/// b != 1
+///
+/// Using the current method, this would say that b != 1 is inconsistent with the system which it isn't.
+///
+/// Its all about rank! If we add some number (>0) of equations to the system and the rank increases *with no inconsistencies* (0 != 1)
+/// then we found "valid solutions" for however many variables the rank increased by.
+/// Essentially, we've reduced the set of solutions (assuming we aren't adding any new variables to it),
+/// which means that there still exists a solution where all the regular equations and negated equations agree.
+///
+/// Wait, sets? Yes! I believe thinking about this problem as sets is the most revealing because it doesn't have all these funny exceptions.
+/// Each equation on its own represents a set of solutions.
+/// Taking the intersection of however many of these "equation sets" (as I'll be referring to them), gives the solution to a system of equations.
+/// Taking the complement of an equation set gives the equation set for the negated equation.
+///
+/// After some thinking, I came up with this equation which is generally true for any sets.
+/// A - (A ∩ C(B)) = A ∩ B
+/// If A ∩ B = ∅ then we know the equations describing A and B must be inconsistent.
+/// Additionally, A ∩ B = ∅ <-> A = A ∩ C(B).
+/// This gives us a method to verify if a negated equation is consistent with a system.
+/// So lets look at the same problem again in the context of sets
+///
+/// A: x = y
+/// B: y != 1
+///
+/// A ∩ C(B)'s matrix:
+/// [ 1 -1  0 ] -> [ 1 0 1 ]
+/// [ 0  1  1 ]    [ 0 1 1 ]
+///
+/// A's matrix
+/// [ 1 -1 0 ]
+///
+/// Clearly, A != A ∩ C(B), and therefore A ∩ B != ∅, which means A and B are consistent!
+///
+/// To tie this back to my thought from the previous update, by adding a new variable, you will *never* be able to get A = A ∩ C(B).
+///
+/// So here we are!! I feel even more confident in this solution than the previous two. Here's to this being it!
 
 /// Represents some variable and a coefficient
 #[derive(Debug, Clone, Default)]
