@@ -1,8 +1,12 @@
 use std::{
+    cell::RefCell,
     collections::{HashMap, HashSet},
+    fmt::{Debug, Display},
     ops::Neg,
 };
 
+use anyhow::bail;
+use itertools::{EitherOrBoth, Itertools};
 use nalgebra::DMatrix;
 
 /// Once we understand which boolean values satisfy an expression (i.e. "p & q" has p = true, q = true satisfy it)
@@ -140,6 +144,161 @@ pub struct Equation<'a> {
     pub rhs: LinearExpression<'a>,
 }
 
+#[derive(Debug, Clone)]
+pub struct LinearSystem<'a> {
+    vars: Vec<&'a str>,
+    vars_to_index: HashMap<&'a str, usize>,
+    matrix: RefCell<DMatrix<f64>>,
+}
+
+impl<'a> LinearSystem<'a> {
+    pub fn from_equations(eqns: &'a [&'a Equation]) -> Self {
+        let mut vars_to_index: HashMap<&str, usize> = HashMap::new();
+        let mut vars: Vec<&str> = Vec::new();
+        let mut rows: Vec<Vec<f64>> = Vec::new();
+
+        // Turn equations into matrix
+        for eqn in eqns {
+            let eqn = eqn.to_equals_zero();
+            let mut row: Vec<f64> = Vec::new();
+            for term in eqn {
+                let pos = if let Some(pos) = vars_to_index.get(term.var) {
+                    *pos
+                } else {
+                    let i = vars.len();
+                    vars.push(term.var);
+                    vars_to_index.insert(term.var, i);
+                    i
+                };
+                if pos >= row.len() {
+                    row.resize(pos + 1, 0.0);
+                }
+                row[pos] = term.coeff as f64;
+            }
+            rows.push(row);
+        }
+
+        let matrix = DMatrix::from_row_iterator(
+            rows.len(),
+            vars.len(),
+            rows.into_iter()
+                .map(|mut x| {
+                    x.resize(vars.len(), 0.0);
+                    x
+                })
+                .flatten(),
+        );
+        Self {
+            matrix: RefCell::new(matrix),
+            vars,
+            vars_to_index,
+        }
+    }
+
+    /// https://rosettacode.org/wiki/Reduced_row_echelon_form
+    pub fn calc_rref(&self) {
+        let mut matrix = self.matrix.borrow_mut();
+        let mut lead = 0;
+        'main: for r in 0..matrix.nrows() {
+            if lead >= matrix.ncols() {
+                break;
+            }
+            let mut i = r;
+            while matrix[(i, lead)] == 0.0 {
+                i += 1;
+                if i == matrix.nrows() {
+                    i = r;
+                    lead += 1;
+                    if matrix.ncols() == lead {
+                        break 'main;
+                    }
+                }
+            }
+            matrix.swap_rows(i, r);
+            let mut lv = matrix[(r, lead)];
+            for val in matrix.row_mut(r) {
+                *val /= lv
+            }
+            for i in 0..matrix.nrows() {
+                if i != r {
+                    lv = matrix[(i, lead)];
+                    let r_row = matrix.row(r).clone_owned();
+                    for (iv, rv) in matrix.row_mut(i).into_iter().zip(r_row.into_iter()) {
+                        *iv -= lv * rv;
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn is_consistent(&self) -> bool {
+        self.calc_rref();
+
+        let Some(ci) = self.vars_to_index.get("") else {
+            return true;
+        };
+        self.matrix
+            .borrow()
+            .row_iter()
+            .filter(|x| x[*ci] != 0.0)
+            .find(|x| {
+                x.iter()
+                    .enumerate()
+                    .find(|(i, x)| i != ci && **x != 0.0)
+                    .is_none()
+            })
+            .is_none()
+    }
+
+    pub fn add_equation_limited(&self, eqn: &Equation) -> anyhow::Result<()> {
+        let eqn = eqn.to_equals_zero();
+        let mut row: Vec<f64> = vec![0.0; self.vars.len()];
+        for term in eqn {
+            let Some(pos) = self.vars_to_index.get(term.var) else {
+                bail!("can't insert extra var")
+            };
+            row[*pos] = term.coeff as f64;
+        }
+        self.matrix.replace_with(|m| {
+            let mut m = m.clone().insert_row(m.nrows(), 0.0);
+            m.row_mut(m.nrows() - 1).copy_from_slice(&row);
+            m
+        });
+        Ok(())
+    }
+}
+
+impl<'a> Display for LinearSystem<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for var in self.vars.iter() {
+            f.write_str(*var)?;
+            f.write_str(" ")?;
+        }
+        Display::fmt(&self.matrix.borrow(), f)
+    }
+}
+
+// NOTE: This doesn't account for transposed columns where the coresponding variables' order is different.
+//       This saves on performance
+impl<'a> PartialEq for LinearSystem<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        self.vars == other.vars
+            && self
+                .matrix
+                .borrow()
+                .row_iter()
+                .zip_longest(other.matrix.borrow().row_iter())
+                .find(|x| {
+                    if let EitherOrBoth::Both(a, b) = x {
+                        a != b
+                    } else {
+                        false
+                    }
+                })
+                .is_none()
+    }
+}
+
 impl<'a> Term<'a> {
     pub fn new(var: &'a str, coeff: f64) -> Self {
         Self { var, coeff }
@@ -159,7 +318,7 @@ impl<'a> Neg for Term<'a> {
 
 impl<'a> Equation<'a> {
     /// Consumes the expression and outputs an expression where the lhs has all terms
-    pub fn equals_zero(&self) -> LinearExpression<'a> {
+    pub fn to_equals_zero(&self) -> LinearExpression<'a> {
         let c = self.clone();
 
         // term_side is where the terms are going, zero_side is where no terms should be
@@ -197,168 +356,71 @@ impl<'a> Equation<'a> {
     }
 }
 
-/// https://rosettacode.org/wiki/Reduced_row_echelon_form
-fn rref(mut matrix: DMatrix<f64>) -> DMatrix<f64> {
-    let mut lead = 0;
-    'main: for r in 0..matrix.nrows() {
-        if lead >= matrix.ncols() {
-            break;
-        }
-        let mut i = r;
-        while matrix[(i, lead)] == 0.0 {
-            i += 1;
-            if i == matrix.nrows() {
-                i = r;
-                lead += 1;
-                if matrix.ncols() == lead {
-                    break 'main;
-                }
-            }
-        }
-        matrix.swap_rows(i, r);
-        let mut lv = matrix[(r, lead)];
-        for val in matrix.row_mut(r) {
-            *val /= lv
-        }
-        for i in 0..matrix.nrows() {
-            if i != r {
-                lv = matrix[(i, lead)];
-                let r_row = matrix.row(r).clone_owned();
-                for (iv, rv) in matrix.row_mut(i).into_iter().zip(r_row.into_iter()) {
-                    *iv -= lv * rv;
-                }
-            }
-        }
-    }
-    matrix
-}
-
-fn is_consistent(eqns: Vec<&Equation>) -> bool {
-    let mut vars_to_index: HashMap<&str, usize> = HashMap::new();
-    let mut vars: Vec<&str> = Vec::new();
-    let mut rows: Vec<Vec<f64>> = Vec::new();
-    let mut i: usize = 0;
-
-    // Turn equations into matrix
-    for eqn in eqns {
-        let eqn = eqn.equals_zero();
-        let mut row: Vec<f64> = Vec::new();
-        for term in eqn {
-            let pos = if let Some(pos) = vars_to_index.get(term.var) {
-                *pos
-            } else {
-                vars_to_index.insert(term.var, i);
-                vars.push(term.var);
-                i += 1;
-                i - 1
-            };
-            if pos >= row.len() {
-                row.resize(pos + 1, 0.0);
-            }
-            row[pos] = term.coeff as f64;
-        }
-        rows.push(row);
-    }
-
-    // If there are no constant terms, then all vars could be 0, which means its always consistent
-    if vars_to_index.get("").is_none() {
-        return true;
-    }
-
-    let matrix = DMatrix::from_row_iterator(
-        rows.len(),
-        i,
-        rows.into_iter()
-            .map(|mut x| {
-                x.resize(i, 0.0);
-                x
-            })
-            .flatten(),
-    );
-
-    // Get RREF
-    let matrix = rref(matrix);
-
-    let ci = vars_to_index[""];
-    matrix
-        .row_iter()
-        .filter(|x| x[ci] != 0.0)
-        .find(|x| {
-            x.iter()
-                .enumerate()
-                .find(|(i, x)| *i != ci && **x != 0.0)
-                .is_none()
-        })
-        .is_none()
-}
-
-/// a = b & b = c -> a = c
-/// [ 1 -1 0 ]    [  ]
-/// [ 0 1 -1 ] ->
-/// [ 1 0 -1 ]
-
 fn main() {
     let eqn1 = Equation {
+        lhs: vec![Term::new("a", 1.0), Term::new("c", 1.0)],
+        rhs: vec![Term::new("", 1.0)],
+    };
+    let eqn2 = Equation {
+        lhs: vec![Term::new("b", 1.0), Term::new("c", 1.0)],
+        rhs: vec![Term::new("", 1.0)],
+    };
+    let eqn3 = Equation {
         lhs: vec![Term::new("a", 1.0)],
         rhs: vec![Term::new("b", 1.0)],
     };
-    let eqn2 = Equation {
-        lhs: vec![Term::new("b", 1.0)],
-        rhs: vec![Term::new("c", 1.0)],
-    };
-    let eqn3 = Equation {
-        lhs: vec![Term::new("c", 1.0)],
-        rhs: vec![Term::new("a", 1.0)],
-    };
     let eqn4 = Equation {
-        lhs: vec![Term::new("d", 1.0)],
-        rhs: vec![Term::new("", 1.0)],
+        lhs: vec![Term::new("a", 1.0)],
+        rhs: vec![Term::new("b", 1.0)],
     };
 
-    // This is excessive, but I'm too far in to quit now
     for a in 0..=1 {
         for b in 0..=1 {
             for c in 0..=1 {
-                // for d in 0..=1 {
-                let mut v = Vec::new();
-                let mut n = Vec::new();
+                //for d in 0..=1 {
+                let mut eqns = Vec::new();
+                let mut ngtd_eqns = Vec::new();
 
                 if a == 1 {
-                    v.push(&eqn1);
+                    eqns.push(&eqn1);
                 } else {
-                    n.push(&eqn1);
+                    ngtd_eqns.push(&eqn1);
                 }
                 if b == 1 {
-                    v.push(&eqn2);
+                    eqns.push(&eqn2);
                 } else {
-                    n.push(&eqn2);
+                    ngtd_eqns.push(&eqn2);
                 }
                 if c == 1 {
-                    v.push(&eqn3);
+                    eqns.push(&eqn3);
                 } else {
-                    n.push(&eqn3);
+                    ngtd_eqns.push(&eqn3);
                 }
                 // if d == 1 {
-                //     v.push(&eqn4);
+                //     eqns.push(&eqn4);
                 // } else {
-                //     n.push(&eqn4);
+                //     ngtd_eqns.push(&eqn4);
                 // }
 
-                let mut n: Vec<&Equation> =
-                    n.into_iter().filter(|x| !x.has_extra_vars(&v)).collect();
+                let system = LinearSystem::from_equations(&eqns);
+                let mut consistent = system.is_consistent();
 
-                let negated_are_inconsistent = if n.len() == 0 {
-                    false
-                } else {
-                    n.append(&mut v);
-                    is_consistent(n)
-                };
+                if consistent {
+                    for eqn in ngtd_eqns {
+                        let new_system = system.clone();
+                        if new_system.add_equation_limited(eqn).is_err() {
+                            continue;
+                        }
+                        new_system.calc_rref();
 
-                println!(
-                    "{a}{b}{c} = {}",
-                    is_consistent(v) && !negated_are_inconsistent
-                );
-                // }
+                        if system == new_system {
+                            consistent = false;
+                            break;
+                        }
+                    }
+                }
+                println!("{a}{b}{c} {consistent}");
+                //}
             }
         }
     }
