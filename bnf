@@ -1,5 +1,14 @@
 <toplevel>  ::= <stmt> | <stmt> <binop> <stmt>
 <stmt>      ::= "!" <substmt> | <substmt>
-<substmt>   ::= "(" <stmt> <binop> <stmt> ")" | <predicate>
+<substmt>   ::= <boolstmt> | <algstmt> | <predicate>
+<boolstmt>  ::= "(" <stmt> <binop> <stmt> ")"
+<algstmt>   ::= "(" <linexpr> "=" <linexpr> ")"
+<linexpr>   ::= <term> (<op> <term>)*
+<term>      ::= <float><var> | <float> | <var>
 <binop>     ::= "&" | "|" | "->" | "<->"
+<op>        ::= "+" | "-"
+<float>     ::= [+-]?([0-9]*[.])?[0-9]+
+<var>       ::= [A-z]+
 <predicate> ::= [A-z]+
+
+(x = 1)

@@ -1,54 +1,51 @@
 use anyhow::bail;
+use regex::Regex;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Token {
     Conditional,
     Biconditional,
     And,
     Or,
     Not,
+    Add,
+    Sub,
+    Equals,
     LeftParen,
     RightParen,
-    Predicate(String),
+    Number(f64),
+    Identifier(String),
 }
 
 pub fn tokenize(input: String) -> anyhow::Result<Vec<Token>> {
-    let mut tokens = Vec::new();
-    let mut chars = input.chars().peekable();
-
-    while let Some(next) = chars.next() {
-        let token = match next {
-            '&' => Token::And,
-            '|' => Token::Or,
-            '!' => Token::Not,
-            '(' => Token::LeftParen,
-            ')' => Token::RightParen,
-            '-' => {
-                if chars.next() == Some('>') {
-                    Token::Conditional
-                } else {
-                    bail!("failed to parse tokens, expected '->'");
-                }
-            }
-            '<' => {
-                if chars.next() == Some('-') && chars.next() == Some('>') {
-                    Token::Biconditional
-                } else {
-                    bail!("failed to parse tokens, expected '<->'");
-                }
-            }
-            'A'..='Z' | 'a'..='z' => {
-                let mut str = String::new();
-                str.push(next);
-                while matches!(chars.peek(), Some('A'..='Z' | 'a'..='z')) {
-                    str.push(chars.next().unwrap());
-                }
-                Token::Predicate(str)
-            }
-            ' ' => continue,
-            _ => bail!("failed to parse tokens, unexpected char '{}'", next),
+    let re = Regex::new(
+        r"([A-z]+)|(-?(?:[0-9]*[.])?[0-9]+)|(\()|(\))|(!)|(&)|(\|)|(->)|(<->)|(=)|(\+)|(-)",
+    )
+    .unwrap();
+    let mut result = vec![];
+    for t in re.find_iter(input.as_str()).map(|x| x.as_str()) {
+        let token = match t {
+            "&" => Some(Token::And),
+            "|" => Some(Token::Or),
+            "!" => Some(Token::Not),
+            "(" => Some(Token::LeftParen),
+            ")" => Some(Token::RightParen),
+            "->" => Some(Token::Conditional),
+            "<->" => Some(Token::Biconditional),
+            "+" => Some(Token::Add),
+            "-" => Some(Token::Sub),
+            "=" => Some(Token::Equals),
+            _ => None,
         };
-        tokens.push(token);
+        if let Some(token) = token {
+            result.push(token);
+        } else if t.chars().next().unwrap().is_ascii_alphabetic() {
+            result.push(Token::Identifier(t.to_string()))
+        } else if t.chars().next().unwrap().is_numeric() {
+            result.push(Token::Number(t.parse::<f64>()?))
+        } else {
+            bail!("Unexpected token, {}", t)
+        }
     }
-    Ok(tokens)
+    Ok(result)
 }

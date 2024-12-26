@@ -7,6 +7,7 @@ edition = "2021"
 anyhow = "1.0.94"
 itertools = "0.13.0"
 nalgebra = "*"
+regex = "1.11.1"
 
 [[bin]]
 name = "sat"
