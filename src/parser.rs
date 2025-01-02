@@ -1,4 +1,4 @@
-use std::{fmt::Display, iter::Peekable, slice::Iter};
+use std::{fmt::Display, iter::Peekable, ops::Neg, slice::Iter};
 
 use anyhow::{anyhow, bail};
 
@@ -23,17 +23,19 @@ pub enum UnaryOperator {
 }
 
 /// If the `var_name` is None, it is a constant
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Term {
     pub name: Option<String>,
     pub coeff: f64,
 }
 
+pub type LinearExpression = Vec<Term>;
+
 /// LHS and RHS represent a vector of summed terms
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Equation {
-    pub lhs: Vec<Term>,
-    pub rhs: Vec<Term>,
+    pub lhs: LinearExpression,
+    pub rhs: LinearExpression,
 }
 
 #[derive(Debug)]
@@ -61,9 +63,32 @@ impl Term {
     }
 }
 
+impl Neg for Term {
+    type Output = Self;
+
+    fn neg(mut self) -> Self::Output {
+        self.coeff *= -1.0;
+        self
+    }
+}
+
 impl Equation {
-    pub fn new(lhs: Vec<Term>, rhs: Vec<Term>) -> Self {
+    pub fn new(lhs: LinearExpression, rhs: LinearExpression) -> Self {
         Self { lhs, rhs }
+    }
+    pub fn to_equals_zero(&self) -> LinearExpression {
+        let c = self.clone();
+
+        // term_side is where the terms are going, zero_side is where no terms should be
+        let (mut term_side, zero_side) = if self.lhs.len() > self.rhs.len() {
+            (c.lhs, c.rhs)
+        } else {
+            (c.rhs, c.lhs)
+        };
+
+        let mut new_terms = zero_side.into_iter().map(|x| -x).collect();
+        term_side.append(&mut new_terms);
+        term_side
     }
 }
 
@@ -260,7 +285,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn linear_expression(&mut self) -> anyhow::Result<Vec<Term>> {
+    fn linear_expression(&mut self) -> anyhow::Result<LinearExpression> {
         let mut terms = vec![self.term()?];
         while let Some(peek) = self.peek() {
             let modifier = if matches!(peek, Token::Add) {
@@ -303,7 +328,7 @@ impl<'a> Parser<'a> {
     }
 
     fn substatement(&mut self) -> anyhow::Result<Expression> {
-        let tmp = (self.iter.clone(), self.predicate_count.clone());
+        let tmp = (self.iter.clone(), self.predicate_count);
         if let Ok(stmt) = self.boolean_statement() {
             return Ok(stmt);
         }

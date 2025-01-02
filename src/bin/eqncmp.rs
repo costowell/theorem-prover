@@ -317,7 +317,6 @@ impl<'a> Neg for Term<'a> {
 }
 
 impl<'a> Equation<'a> {
-    /// Consumes the expression and outputs an expression where the lhs has all terms
     pub fn to_equals_zero(&self) -> LinearExpression<'a> {
         let c = self.clone();
 
