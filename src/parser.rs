@@ -295,6 +295,7 @@ impl<'a> Parser<'a> {
             } else {
                 break;
             };
+            self.next()?;
 
             let mut term = self.term()?;
             term.coeff *= modifier;
@@ -341,7 +342,7 @@ impl<'a> Parser<'a> {
         self.iter = tmp.0;
         self.predicate_count = tmp.1;
 
-        self.predicate()
+        self.predicate().map_err(|_| anyhow!("Failed to parse substatement"))
     }
 
     fn statement(&mut self) -> anyhow::Result<Expression> {
