@@ -206,8 +206,7 @@ fn main() {
     (0..predicates.len()).for_each(|x| print!("{x} "));
     println!();
 
-    let mut satisfiable = false;
-    let mut prooved = true;
+    let mut solution_exists = true;
     for state in iter {
         let result = expr.eval(state.as_slice());
 
@@ -230,10 +229,8 @@ fn main() {
             }
 
             let consistent = is_consistent(eqns.as_slice(), neqns.as_slice());
-            if consistent {
-                satisfiable = true;
-            } else {
-                prooved = false;
+            if !consistent {
+                solution_exists = false;
             }
             println!("{consistent}")
         } else {
@@ -241,15 +238,7 @@ fn main() {
         }
     }
     println!(
-        "{expr} is {}",
-        if satisfiable {
-            "satisfiable"
-        } else {
-            "unsatisfiable"
-        }
-    );
-    println!(
-        "{expr} is {}",
-        if prooved { "prooven" } else { "not prooven" }
+        "{expr} {} solution(s)",
+        if solution_exists { "has" } else { "does not have" }
     );
 }
